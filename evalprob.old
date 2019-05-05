@@ -1,0 +1,93 @@
+/*
+	Mechanics to estimate level of puzzle
+ */
+#include <string.h>
+#include "3type.h"
+#include "evalprob.h"
+
+int eval2(int a, char o, int b, int c, int used[])
+{
+	int w = 0;
+	switch(o)
+	{
+	 // First standardize the problem, then evaluate
+	 case	'-' : return eval2(b,'+',c,a,used)+1;
+	 case	'/' : return eval2(b,'x',c,a,used)+1;
+	 case	'+' : if (a > b) swap(a,b);
+	 	if (a <= 10) 			w -=150;
+		if (lodig(a)==0 || lodig(b)==0)	w -=129;
+		char tmp1[10], tmp2[10], tmp3[10]; int l1, l2, l3;
+		l1 = strlen(itoa(b, tmp1, 10));
+		l2 = strlen(itoa(c, tmp2, 10));
+		l3 = strlen(itoa(a, tmp3, 10));
+		if (l1 < l2 && l3 < l1)		w -= 99;
+		if (l1 < l2)			w -= 99;
+		if (a == b)			w -= 27;
+		if (lodig(a)==lodig(b))		w -= 25;
+		if (l1 == l2 
+		    && tmp1[0] > tmp2[0]) 	w -= 19;
+	        if (lodig(a)+lodig(b) > 9)	w +=  5;
+		if (lodig(c)==0)		w +=  3;
+	        break;
+	 case	'x' : if (a > b) swap(a,b);
+	 	w += 9;
+	 	if (a <= 10)			w -=150;
+		if (lodig(a)< 2 || lodig(b) <2)	w -= 77; 
+		if (dig2(a)==1 && dig2(b)==1
+		    && dig3(c) ==1)		w -= 57;
+		if (a % 11 == 0 || b % 11 == 0)	w -= 33;
+		if (lodig(a)==lodig(c)
+		 || lodig(b)==lodig(c))		w -= 31;
+		if (dig2(a)==dig2(b)&& b < 100)	w -= 25;
+		if (a == b)			w -= 17;
+		if (used[lodig(a)]==1
+		 || used[lodig(b)]==1
+		 || used[lodig(c)]==1) 		w += 11;
+		if (lodig(a)==lodig(b))		w -= 11;
+		if (lodig(a)==5 || lodig(b)==5) w -=  9;
+		if (lodig(a)==3 || lodig(b)==3
+		 || lodig(a)==7 || lodig(b)==7) w +=  8;
+	}
+	return w;
+}
+
+int evaluate(int a[], char ops[])
+{
+	int used[10], len[10], i, j, ndig=0, h;
+	int dif = 897;
+	char tmp[10], *p;
+
+	for (j=0; j< 10; j++) used[j] = len[j] = 0;
+	for (i=1; i < 10; i++) {
+		p = itoa(a[i], tmp, 10);
+		j = strlen(tmp);
+		len[j]++;
+		while(*p) {
+			h = ctod(*p++);
+			if(!used[h]) ndig++;
+			used[h]++;
+		}
+	}
+	// Evaluate lengthiest numbers
+	if (len[7]+len[8]+len[9]) dif -= 100;
+	if (len[6]+len[7]+len[8]+len[9]) dif -=  20;
+	if (len[5]+len[6]+len[7]+len[8]+len[9]) dif -= 30;
+	if (len[4]+len[5]+len[6]+len[7]+len[8]+len[9]) dif -= 40;
+	// Evaluate existence and distribution of numbers
+	dif += 2 * ndig * (ndig-1);         // All possible digits
+	if (used[0]) dif += 21 + 2*used[0]; // Lots of zeroes
+	dif += 2 * used[7] + used[3];       // Lots of sevens and three's
+	for (j=0; j < 10; j++) {
+		if (used[j] == 1) dif += 51; 
+		if (used[j] >  2) dif -=  9*used[j]*(used[j]-2);
+	}
+	// Evaluate each equation by itself
+	dif += eval2(a[1], ops[0], a[2], a[3], used);
+	dif += eval2(a[4], ops[4], a[5], a[6], used);
+	dif += eval2(a[7], ops[5], a[8], a[9], used);
+	dif += eval2(a[1], ops[1], a[4], a[7], used);
+	dif += eval2(a[2], ops[2], a[5], a[8], used);
+	dif += eval2(a[3], ops[3], a[6], a[9], used);
+	return dif < 0 ? 0 : dif > 1000 ? 100 : dif/ 10;
+}
+

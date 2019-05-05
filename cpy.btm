@@ -1,0 +1,2 @@
+mkdir a:\pmeq
+copy/v/u pmeq1.exe pmeq1.hlp pmeq.ini readme a:\pmeq\

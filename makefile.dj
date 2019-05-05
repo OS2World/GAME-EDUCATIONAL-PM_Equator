@@ -1,0 +1,21 @@
+CC = gcc 
+OBJ = genprob.o 3type.o evalprob.o
+LIBS= 
+CFLG= -O2 
+
+.cc.o:
+	$(CC) -c -Wall $(CFLG) -D_itoa=itoa $<
+
+a.out: 3type.o genprob.o evalprob.o
+	$(CC) $(CFLG) $(OBJ) $(LIBS)
+
+eq.exe: a.out
+	strip a.out
+	copy a.out eq
+	coff2exe -s /djgpp/bin/go32.exe eq
+
+evalprob.o: evalprob.cc evalprob.h 3type.h
+genprob.o: genprob.cc genprob.h 3type.h
+3type.o:   3type.cc genprob.h evalprob.h 3type.h
+
+

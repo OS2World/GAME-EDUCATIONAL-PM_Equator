@@ -1,0 +1,52 @@
+PM-Equator
+Copyright 1995, by Frank Sven Nestel
+All Rights Reserved.
+
+Number puzzles with a nice PM-interface for instant play.
+
+This program is being released as shareware.  Copies may be
+distributed by BBSes, FTP sites, CD-ROMs, disk vendors, etc..., with
+the following conditions:
+
+- The following files must all be present together, and unmodified when
+  distributed:
+
+  FILE_ID.DIZ    - Brief description of the document for BBS use
+  LICENSE.TXT    - License terms (this file)
+  REGISTER.TXT   - Registration form
+  PMEQ1.EXE      - The executable
+  PMEQ1.HLP      - Online Help
+  PMEQ1.INI      - An Ini-File
+
+- When distributed inside a compressed file, the prefix of that file
+  should be PMEQ. The document should be listed under the name "PM-Equator"
+  "v0.1" can be added.
+
+- Vendors who have a copy which is dated more than 2 years should check
+  to see if there is a newer edition before distributing the document.
+
+- Any vendor publication which lists PMEQV01 must have a clear
+  explanation of the shareware concept.  This information must be
+  visible to customers before they pay a fee to the vendor.
+
+- The FILE_ID.DIZ file and the first paragraphs of LICENSE.TXT all contain 
+  text recommended for use as a description for this document.
+
+- This document must not be bundled as part of another product
+  without permission by the author.
+
+- PMEQV01 is copyrighted shareware.  It should not be classified as
+  public domain or free software.
+
+- PMEQV01 may not be used to generate puzzles for commercial use (e.g.
+  to be printed in magazines/newspapers).
+
+GENRAL NOTE: 
+      The above terms are meant to be easy to comply with.  Basically,
+      distributors & users who operate legally and in fairness to
+      shareware authors, are encouraged to circulate, and make use of
+      this document.  In case you see a restriction which seems
+      ambiguous or unfair, please contact me to see what can be worked
+      out.
+
+

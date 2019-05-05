@@ -1,0 +1,896 @@
+#define INCL_WIN
+#define INCL_DOSPROCESS
+#define INCL_DOSERRORS
+#define INCL_DOSSEMAPHORES
+
+#include <os2.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+#include "pmeq1.h"
+#include "pmgenprb.h"
+#include "pmmnwin.h"
+#include "pmhelp.h"
+#include "pmini.h"
+
+//
+//  Einige Parameter die beim Malen gebraucht werden
+//
+int cxBorder, cyBorder, cyDimen, cyClient, cxClient;
+ULONG clock;
+int assigned1[10], assigned2[10];
+
+#define SYMBOL1(x) ( AlphaSet ? hbmAa[x] : hbmAl[x])
+#define SYMBOL(x) SYMBOL1(set[x])
+#define DIGSYM(x) ( coded[x] ? assigned1[x] == -1 ? SYMBOL(x) : hbmNr[assigned1[x]] : hbmNr[x] )
+static void DrawNumm(HPS hps, int num, int md, POINTL * ptl)
+{
+	int d=1, dig, wr, i;
+	for (i=1; i < md; i++) d *= 10;
+	wr = 0;
+	for (i=0; i < md; i++) {
+            dig = (num / d) % 10;
+            if (dig > 0 || wr || d == 1) {
+		wr = 1;
+                WinDrawBitmap(hps, DIGSYM(dig), NULL, ptl, 0L, 0L, DBM_NORMAL);
+	    }
+	    d /= 10;
+	    ptl->x += BigBmpData.cx;
+	}
+}
+
+#define SIGNSHIFT 4
+static void DrawSign(HPS hps, char sign, POINTL * ptl)
+{
+        HBITMAP hbm;
+	ptl->x++;
+	ptl->y += SIGNSHIFT;
+        switch (sign) {
+		case '+': hbm = hbmplus; break;
+		case '-': hbm = hbmminus; break;
+		case 'x': hbm = hbmmal; break;
+		case '/': hbm = hbmdurch; break;
+		default: hbm = hbmgleich;
+        }
+        WinDrawBitmap(hps, hbm ,NULL, ptl, 0L, 0L, DBM_NORMAL);
+	ptl->x += SmallBmpData.cx+1;
+	ptl->y -= SIGNSHIFT;
+}
+
+int col[3], lin[3];
+
+static VOID MainPaint(HWND hwnd)
+{
+    HPS hps = WinBeginPaint (hwnd,NULLHANDLE,NULL);
+    POINTL ptl;
+    GpiErase(hps);
+    lin[0] =
+    ptl.y = cyClient - BigBmpData.cy-4*cyBorder;
+    ptl.x = 4*cxBorder;
+    col[0] = ptl.x;
+    DrawNumm(hps, anr[1], 4, &ptl);
+    DrawSign(hps, ops[0],    &ptl);
+    col[1] = ptl.x;
+    DrawNumm(hps, anr[2], 4, &ptl);
+    DrawSign(hps, '=' ,    &ptl);
+    col[2] = ptl.x;
+    DrawNumm(hps, anr[3], 4, &ptl);
+    ptl.y -= SmallBmpData.cy+1+SIGNSHIFT;
+    ptl.x  = cxBorder + 4*BigBmpData.cx - SmallBmpData.cx - SIGNSHIFT;
+    DrawSign(hps, ops[1],    &ptl); ptl.x += 4*BigBmpData.cx;
+    DrawSign(hps, ops[2],    &ptl); ptl.x += 4*BigBmpData.cx;
+    DrawSign(hps, ops[3],    &ptl);
+    lin[1] = 
+    ptl.y -= BigBmpData.cy+1-SIGNSHIFT;
+    ptl.x = 4*cxBorder;
+    DrawNumm(hps, anr[4], 4, &ptl);
+    DrawSign(hps, ops[4],    &ptl);
+    DrawNumm(hps, anr[5], 4, &ptl);
+    DrawSign(hps, '=' ,    &ptl);
+    DrawNumm(hps, anr[6], 4, &ptl);
+    ptl.y -= SmallBmpData.cy+1+SIGNSHIFT;
+    ptl.x  = 4*cxBorder + 4*BigBmpData.cx - SmallBmpData.cx - SIGNSHIFT;
+    DrawSign(hps, '=',     &ptl); ptl.x += 4*BigBmpData.cx;
+    DrawSign(hps, '=',     &ptl); ptl.x += 4*BigBmpData.cx;
+    DrawSign(hps, '=',     &ptl);
+    lin[2] =
+    ptl.y -= BigBmpData.cy+1-SIGNSHIFT;
+    ptl.x = 4*cxBorder;
+    DrawNumm(hps, anr[7], 4, &ptl);
+    DrawSign(hps, ops[5],    &ptl);
+    DrawNumm(hps, anr[8], 4, &ptl);
+    DrawSign(hps, '=' ,    &ptl);
+    DrawNumm(hps, anr[9], 4, &ptl);
+    WinEndPaint (hps);
+}
+
+#define TIMERms         200
+#define SECONDS(x) (((x) * TIMERms)/1000)
+
+long int Score, Errors, preTime;
+
+int GetDigit(int x, int y)
+{
+	int a = 1, d = 0, i, h;
+	if (x >= col[2])
+		a = 3;
+	else if (x >= col[1])
+		a = 2;
+	else if (x >= col[0])
+		a = 1;
+	else
+		return -1;
+	h = x-col[a-1];
+	if (y >= lin[2] && y < lin[2]+BigBmpData.cy)
+		a += 6;
+	else if (y >= lin[1] && y < lin[1]+BigBmpData.cy)
+		a += 3;
+	else if (y >= lin[0] && y < lin[0]+BigBmpData.cy)
+		a = a;
+	else
+		return -1;
+	d = 3; while (h > BigBmpData.cx) {
+		h -= BigBmpData.cx;
+		d--;
+	}
+	if (d < 0) return -1;
+	for (h = anr[a],i=0; i < d; i++) {
+		h /= 10;
+		if (h==0) return -1;
+	}
+	return (h % 10);
+}
+
+//======================================================
+char inname[NAMELEN];
+
+static MRESULT EXPENTRY GetNameProc(HWND hwnd,ULONG msg,MPARAM mp1,MPARAM mp2)
+{
+   static HWND hwndName;
+   int i;
+
+   switch(msg) {
+   case WM_INITDLG:
+      hwndName = WinWindowFromID(hwnd,DID_GETNAME);
+      WinSendDlgItemMsg(hwnd, DID_GETNAME, EM_SETTEXTLIMIT, MPFROMSHORT(NAMELEN), NULL);
+      for (i=0; i < MAXSCORES; i++) {
+	if (hard[i].validmagic == MAGIC) 
+		WinSendDlgItemMsg(hwnd, DID_GETNAME, LM_INSERTITEM, MPFROMSHORT(LIT_END),
+			(PSZ) hard[i].name);
+	if (best[i].validmagic == MAGIC) 
+		WinSendDlgItemMsg(hwnd, DID_GETNAME, LM_INSERTITEM, MPFROMSHORT(LIT_END),
+			(PSZ) best[i].name);
+	if (fast[i].validmagic == MAGIC) 
+		WinSendDlgItemMsg(hwnd, DID_GETNAME, LM_INSERTITEM, MPFROMSHORT(LIT_END),
+			(PSZ) fast[i].name);
+      }
+      WinSetFocus(HWND_DESKTOP,hwndName);
+      inname = "";
+      break;
+   case WM_CONTROL:
+      if (SHORT1FROMMP(mp1) == EN_OVERFLOW) ; // Msg, dass Name zu lang!
+      break;
+   case WM_COMMAND:
+      switch(SHORT1FROMMP(mp1)) {
+      case DID_OK:
+	 WinQueryWindowText(hwndName, NAMELEN, (PSZ)inname);
+         // run into break;
+      case DID_CANCEL:
+         WinDismissDlg(hwnd,DID_CANCEL);
+         break;
+      }
+      break;
+   default: 
+        return WinDefDlgProc(hwnd,msg,mp1,mp2);
+   }
+   return (MRESULT) FALSE;
+}
+
+void GetNameDlg(char name[NAMELEN])
+{
+	WinDlgBox(HWND_DESKTOP, HWND_DESKTOP, GetNameProc,(HMODULE)0, ID_GETNAME, NULL);
+	strcpy(name, inname);
+}
+
+//----------------------------------------------------
+
+HWND hwnd_hi = 0;
+const int lineskip=14; // Distance between lines, maybe should be variable
+
+static MRESULT EXPENTRY window_hi(HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2)
+{
+  HPS hps;
+  RECTL rcl;
+  POINTL ptl;
+  char buf[127];
+  static int cxSize, cySize;
+  int i;
+
+  switch (msg)
+    {
+    case WM_SIZE:
+	cySize =  SHORT2FROMMP(mp2);
+	cxSize =  SHORT1FROMMP(mp2);
+	break;
+    case WM_PAINT:
+      hps = WinBeginPaint (hwnd, NULLHANDLE, NULL);
+      GpiErase(hps);
+      WinQueryWindowRect (hwnd, &rcl);
+      ptl.x = 8; ptl.y = cySize - lineskip-1;
+      GpiCharStringAt(hps, &ptl, strlen("Hard"), (PSZ)"Hard"); ptl.y-=lineskip;
+      for (i=0; i < MAXSCORES; i++) if (hard[i].validmagic == MAGIC) {
+	sprintf(buf, "%1d. %20s %7ld %3ld:%02ld %02d.%02d.%04d",
+			i+1, hard[i].name, hard[i].score, 
+			SECONDS(hard[i].time)/60, SECONDS(hard[i].time)%60,
+			hard[i].when.day, hard[i].when.month, hard[i].when.year
+			);
+	GpiCharStringAt(hps, &ptl, strlen(buf), (PSZ) buf);
+        ptl.y -= lineskip;
+      }
+      ptl.y -= lineskip/2;
+      GpiCharStringAt(hps, &ptl, strlen("Easy"), (PSZ)"Easy"); ptl.y-=lineskip;
+      for (i=0; i < MAXSCORES; i++) if (best[i].validmagic == MAGIC) {
+	sprintf(buf, "%1d. %20s %7ld %3ld:%02ld %02d.%02d.%04d",
+			i+1, best[i].name, best[i].score, 
+			SECONDS(best[i].time)/60, SECONDS(best[i].time)%60,
+			best[i].when.day, best[i].when.month, best[i].when.year
+			);
+	GpiCharStringAt(hps, &ptl, strlen(buf), (PSZ) buf);
+        ptl.y -= lineskip;
+      }
+      ptl.y -= lineskip/2;
+      GpiCharStringAt(hps, &ptl, strlen("Easy & Fast"), (PSZ)"Easy & Fast"); ptl.y-=lineskip;
+      for (i=0; i < MAXSCORES; i++) if (fast[i].validmagic == MAGIC) {
+	sprintf(buf, "%1d. %20s %7ld %3ld:%02ld %02d.%02d.%04d",
+			i+1, fast[i].name, fast[i].score, 
+			SECONDS(fast[i].time)/60, SECONDS(fast[i].time)%60,
+			fast[i].when.day, fast[i].when.month, fast[i].when.year
+			);
+	GpiCharStringAt(hps, &ptl, strlen(buf), (PSZ) buf);
+        ptl.y -= lineskip;
+      }
+      WinEndPaint (hps);
+    default:
+	  return (WinDefWindowProc (hwnd, msg, mp1, mp2));
+   }
+  return (MRESULT) false;
+}
+
+
+void ShowHiScore(HWND mainw)
+{
+  ULONG flFlags = FCF_DLGBORDER | FCF_SHELLPOSITION | FCF_TITLEBAR | FCF_MINBUTTON;
+  char * mclass = "Scorefenster";
+  HWND hwndClient2;
+
+  if (!hwnd_hi) {
+	  if (!WinRegisterClass(what_is_it_hab, (PSZ) mclass, (PFNWP) window_hi,  CS_SIZEREDRAW,0L))
+		MessageBox(hwndFrame //HWND_DESKTOP
+				, IDMSG_CANT_REGISTER, MB_OK | MB_ERROR, TRUE);
+	  hwnd_hi = WinCreateStdWindow(HWND_DESKTOP, 0,
+					&flFlags,
+					(PSZ) mclass,
+					(PSZ) "High Scores", 0,
+					(HMODULE)0, ID_ClientWindow, &hwndClient2);
+	 if (!hwnd_hi)
+		MessageBox(hwndFrame // HWND_DESKTOP
+			, IDMSG_CANT_FRAME, MB_OK | MB_ERROR, TRUE);
+	WinSetOwner(hwnd_hi, mainw);
+  }
+  int  dx = 360,
+       dy = lineskip*15 + 1 + WinQuerySysValue(HWND_DESKTOP, SV_CYTITLEBAR);
+  WinSetWindowPos(hwnd_hi, hwndFrame,
+		5,
+		WinQuerySysValue(HWND_DESKTOP, SV_CYSCREEN) -dy - 5,
+		dx, dy,
+		SWP_SIZE | SWP_SHOW | SWP_MOVE | SWP_ZORDER);
+  WinInvalidateRect(hwnd_hi, NULL, TRUE);
+  WinSendMsg(hwnd_hi, WM_PAINT, 0,0);
+}
+
+//======================================================
+
+#define ALLDIGIT(x,y) {for(int ii=0; ii < 10; ii++) x[ii]=y;}
+
+int inputDigit, oldtrial=-1;
+int nDigits;
+bool success, changed[10];
+
+void QueryHitDigit();
+
+bool Trial(int digit, int inputDigit)
+{
+	if (inputDigit < 0 || inputDigit > 9 || digit < 0 || digit > 9) return false;
+	success = false;
+	if (HardLevel) {
+		if (assigned1[digit] == -1 && inputDigit != assigned1[digit] ) {
+			nDigits--;
+		} else {
+			assigned2[assigned1[digit]] = -1;
+		}
+		assigned1[digit] = inputDigit;
+		assigned2[inputDigit] = digit;
+	} else if (digit == inputDigit) {
+		coded[digit] = 0;
+		nDigits--;
+	} else {
+		DosBeep(220,99);
+		if (oldtrial != digit) {
+			MessageBox(hwndFrame // HWND_DESKTOP
+				, IDMSG_LEIDERFALSCH, MB_OK | MB_INFORMATION, TRUE);
+			Errors++;
+			preTime /= 2;
+			Score -= 1000 * Errors;
+		}
+		oldtrial = digit;
+		return false;
+	}
+	changed[digit] = success = true;
+	QueryHitDigit();
+	return true;
+}
+
+static MRESULT EXPENTRY DigitDlgProc(HWND hwnd,ULONG msg,MPARAM mp1,MPARAM mp2)
+{
+   int digit;
+   static HWND hwndDigit, hwndIcon;
+
+   switch(msg) {
+   case WM_INITDLG:
+      oldtrial = -1;
+      hwndDigit = WinWindowFromID(hwnd,DID_DIGIT);
+      hwndIcon  = WinWindowFromID(hwnd, ID_DIGICON);
+      digit = 0; while(coded[digit]==0 && digit < 10) digit++;
+      if (digit==10) WinSendMsg(hwndDigit, WM_COMMAND, MPFROMSHORT(DID_CANCEL), NULL);
+      WinSendMsg(hwndDigit, SPBM_SETLIMITS, MPFROMLONG(9), MPFROMLONG(0));
+      WinSendMsg(hwndDigit, SPBM_SETCURRENTVALUE,MPFROMLONG(digit), NULL);
+      WinSetFocus(HWND_DESKTOP,hwndDigit);
+      break;
+   case WM_PAINT:
+      WinDefDlgProc(hwnd,msg,mp1,mp2);
+      HPS hps = WinBeginPaint (hwndIcon,NULLHANDLE,NULL);
+      POINTL ptl;
+      ptl.x = 0; ptl.y = 0;
+      WinDrawBitmap(hps, SYMBOL(inputDigit), NULL, &ptl, 0L, 0L, DBM_NORMAL);
+      WinEndPaint(hps);
+      break;
+   case WM_COMMAND:
+	DosBeep(440,50);
+      switch(SHORT1FROMMP(mp1)) {
+      case SPBN_UPARROW:
+        WinSendMsg(hwndDigit,SPBM_QUERYVALUE,&digit,NULL);
+	if (coded[digit]==0) WinSendMsg(hwndDigit, SPBM_SPINUP, MPFROMSHORT(1), NULL);
+	break;
+      case SPBN_DOWNARROW:
+        WinSendMsg(hwndDigit,SPBM_QUERYVALUE,&digit,NULL);
+	if (coded[digit]==0) WinSendMsg(hwndDigit, SPBM_SPINDOWN, MPFROMSHORT(1), NULL);
+	break;
+      case DID_OK:
+        WinSendMsg(hwndDigit,SPBM_QUERYVALUE,&digit,NULL);
+	if (Trial(digit, inputDigit)) {
+		WinDismissDlg(hwnd,DID_OK);
+		// QueryHitDigit();
+	}
+        break;
+      case DID_CANCEL:
+	 success = false;
+         WinDismissDlg(hwnd,DID_CANCEL);
+         break;
+      }
+      break;
+   case WM_BUTTON1DBLCLK:
+	 success = false;
+         WinDismissDlg(hwnd,DID_CANCEL);
+         break;
+   default: 
+        return WinDefDlgProc(hwnd,msg,mp1,mp2);
+   }
+   return (MRESULT) FALSE;
+}
+
+//======================================================
+static int symbol = 0;
+
+static MRESULT EXPENTRY AboutDlgProc(HWND hwnd,ULONG msg,MPARAM mp1,MPARAM mp2)
+{
+   HPS hps;
+   static HWND hwndIcon;
+   POINTL ptl;
+
+   switch(msg) {
+   case WM_INITDLG:
+      hwndIcon  = WinWindowFromID(hwnd, ID_DIGICON2);
+      WinStartTimer(what_is_it_hab, hwnd, ID_Timer, 1000);
+      break;
+   case WM_TIMER:
+      symbol = (symbol + 1) % 10;
+      WinInvalidateRect(hwndIcon, NULL, TRUE);
+      WinSendMsg(hwnd, WM_PAINT, 0,0);
+      break;
+   case WM_PAINT:
+      WinDefDlgProc(hwnd,msg,mp1,mp2);
+      hps = WinBeginPaint (hwndIcon,NULLHANDLE,NULL);
+      ptl.x = 0; ptl.y = 0;
+      WinDrawBitmap(hps, SYMBOL(symbol), NULL, &ptl, 0L, 0L, DBM_NORMAL);
+      WinEndPaint(hps);
+      break;
+   default: 
+        return WinDefDlgProc(hwnd,msg,mp1,mp2);
+   }
+   return (MRESULT) FALSE;
+}
+
+//======================================================
+static void DrawIcon(HPS hps, int id, POINTL * ptl, bool really)
+{
+	if (really) WinDrawBitmap(hps,
+		!coded[id]
+		? SYMBOL(id)
+		: assigned2[id]==-1
+			? hbmNr[id] : SYMBOL(assigned2[id]),
+		NULL, ptl, 0L, 0L, DBM_NORMAL);
+	ptl->x += BigBmpData.cx + 1;
+}
+
+static HPOINTER currpointer;
+#define MAUS_ZEIGER(x)	WinSetPointer(HWND_DESKTOP, currpointer = (x));
+#define MAUS_CZEIGER(t,x) MAUS_ZEIGER((t? DragPtr[x] : Drag2Ptr[x]))
+#define NORM_MAUS_ZEIGER MAUS_ZEIGER(currpointer=WinQuerySysPointer(HWND_DESKTOP, SPTR_ARROW, FALSE));
+
+
+static HWND hwnd_state;
+
+static MRESULT EXPENTRY window2(HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2)
+{
+  HPS hps = 0;
+  RECTL rcl;
+  POINTL ptl, ptl2;
+  char buf[127];
+  static int cxSize, cySize, pos;
+  int i, cxMouse, cyMouse;
+
+  switch (msg)
+    {
+    case WM_SIZE:
+	cySize =  SHORT2FROMMP(mp2);
+	cxSize =  SHORT1FROMMP(mp2);
+	break;
+    case WM_ERASEBACKGROUND:
+      hps = WinBeginPaint (hwnd, NULLHANDLE, NULL);
+      GpiErase(hps);
+      ALLDIGIT(changed, true);
+	// Hmm, lets try this one
+    case WM_PAINT:
+      if (!hps) hps = WinBeginPaint (hwnd, NULLHANDLE, NULL);
+      WinQueryWindowRect (hwnd, &rcl);
+      // GpiSetColor (hps, CLR_DARKCYAN);
+      if (preTime < 0)
+        sprintf(buf, "Time  = %3ld:%02ld (-)          ", SECONDS(clock)/60, SECONDS(clock)%60);
+      else
+        sprintf(buf, "Time  = %3ld:%02ld (%ld)        ", SECONDS(clock)/60, SECONDS(clock)%60, preTime);
+      ptl.x = 20; 
+      ptl.y = 7;
+      ptl2.y = cySize - 7 - BigBmpData.cy;
+      ptl2.x = cxSize - 20; 
+      GpiSetBackMix(hps, BM_OVERPAINT); // Damit wird automatisch alter Text ueberschrieben!
+				// Default ist BM_LEAVEALONE und patzt alles zusammen!
+      GpiSetBackColor(hps, CLR_BACKGROUND); // DEFAULT schien weiss!
+      // GpiMove(hps, &ptl);
+      // GpiSetPattern(hps, PATSYM_DENSE8);
+      // GpiBox(hps, DRO_FILL, &ptl2, 0,0);
+      GpiCharStringAt(hps, &ptl, strlen(buf), (PSZ) buf);
+      ptl.y += 20;
+      sprintf(buf, "Score = %06ld (%ld)", Score, Errors);
+      GpiCharStringAt(hps, &ptl, strlen(buf), (PSZ) buf);
+      ptl2.x = 2; ptl2.y+=3;
+      for (i=0; i < 10; i++) { DrawIcon(hps, i, &ptl2, changed[i]); changed[i]=false; };
+      WinEndPaint (hps);
+      break;
+
+    case WM_MOUSEMOVE:
+	WinSetPointer(HWND_DESKTOP, currpointer);
+	break;
+
+    case WM_BUTTON2CLICK:
+	NORM_MAUS_ZEIGER
+	break;
+
+    case WM_BUTTON1DBLCLK:
+	if (HardLevel) {
+		assigned1[assigned2[pos]] = -1;
+		assigned2[pos] = -1;
+		changed[pos] = true;
+		nDigits++;
+		QueryHitDigit();
+	}
+	NORM_MAUS_ZEIGER
+	break;
+
+    case WM_BUTTON1CLICK:
+        cxMouse = SHORT1FROMMP(mp1);
+        cyMouse = SHORT2FROMMP(mp1);
+	if (cyMouse > cySize - 4 - BigBmpData.cy && cxMouse >= 2) {
+		pos = (cxMouse - 2)/(BigBmpData.cx+1);
+		for (i = 0; i < 10; i++) {
+			if (currpointer==Drag2Ptr[set[i]]) {
+				oldtrial = -1;
+				if (Trial(i, pos)) {
+					NORM_MAUS_ZEIGER
+				}
+				return (MRESULT) FALSE;
+			}
+		}
+		if (0 <= pos && pos <= 9) {
+			MAUS_ZEIGER(DragPtr[pos])
+		}
+	}
+	break;
+    default:
+	  return (WinDefWindowProc (hwnd, msg, mp1, mp2));
+   }
+  return (MRESULT) false;
+}
+
+static void InitWindow2(HWND mainw)
+{
+  ULONG flFlags = FCF_DLGBORDER | FCF_SHELLPOSITION | FCF_TITLEBAR | WS_DISABLED;
+  char * mclass = "Minifenster";
+  HWND hwndClient2;
+
+  if (!WinRegisterClass(what_is_it_hab, (PSZ) mclass, (PFNWP) window2,  CS_SIZEREDRAW,0L))
+	MessageBox(HWND_DESKTOP, IDMSG_CANT_REGISTER, MB_OK | MB_ERROR, TRUE);
+  hwnd_state = WinCreateStdWindow(HWND_DESKTOP, 0, // WS_SYNCPAINT,
+				&flFlags,
+				(PSZ) mclass, 
+				(PSZ) "Equator State", 0, //WS_SYNCPAINT,
+				(HMODULE)0, ID_ClientWindow, &hwndClient2);
+  if (!hwnd_state)
+	MessageBox(HWND_DESKTOP, IDMSG_CANT_FRAME, MB_OK | MB_ERROR, TRUE);
+  int h  = 3*WinQuerySysValue(HWND_DESKTOP, SV_CXDLGFRAME)
+          + 10 * (BigBmpData.cx+1) - 1,
+      dx = 2*WinQuerySysValue(HWND_DESKTOP, SV_CXDLGFRAME) + 200,
+      dy = 2*WinQuerySysValue(HWND_DESKTOP,SV_CYDLGFRAME)
+		+WinQuerySysValue(HWND_DESKTOP, SV_CYTITLEBAR)
+		+3*WinQuerySysValue(HWND_DESKTOP, SV_CYMENU)
+                +4 + BigBmpData.cy;
+  if (h > dx) dx = h;
+  WinSetWindowPos(hwnd_state,HWND_TOP,
+			WinQuerySysValue(HWND_DESKTOP, SV_CXSCREEN) -dx - 40,
+			WinQuerySysValue(HWND_DESKTOP, SV_CYSCREEN) -dy - 45,
+			dx, dy,
+			SWP_SIZE | SWP_SHOW | SWP_MOVE | SWP_ZORDER);
+
+  WinSetOwner(hwnd_state, mainw);
+}
+
+static void PaintWindow2()
+{       
+	// Es ist falsch den ganzen Frame upzudaten, das flackert dann furchtbar!
+	HWND cl = WinWindowFromID(hwnd_state, FID_CLIENT);
+	WinInvalidateRect(cl, NULL, TRUE);
+	// WinSendMsg(cl, WM_PAINT, 0,0);
+}
+
+static void ClearWindow2()
+{
+  WinDestroyWindow(hwnd_state);
+}
+
+
+//======================================================
+#define NOTE(x,y) DosBeep(x,y-5); DosBeep(0,5);
+void melody(void * dummy)
+{
+	for (int i = 1; i < 4; i++)
+	{
+		NOTE(440, 500);
+		NOTE(440, 500);
+		NOTE(500, 500);
+		NOTE(500, 500);
+	}
+}
+
+int Fehler()
+{
+	int i,c=0;
+	for (i=0; i < 10; i++) {
+		if (assigned1[i] != set[i]) c++;
+	}
+	return c;
+}
+
+void QueryHitDigit()
+{
+	int c = 0;
+	if (success) {
+	    if ( (!HardLevel && nDigits == 1) || (HardLevel && nDigits == 0) ) {
+		if (HardLevel && (c=Fehler())) {
+			char msg[120];
+			sprintf(msg,"There are %d mistakes in your solution!", c);
+			WinMessageBox(HWND_DESKTOP, hwndClient,
+   	                     (PSZ)msg, (PSZ)NULL, MSGBOXID, MB_OK | MB_NOICON);
+			return;
+		}
+		ALLDIGIT(coded, 0); 
+		ALLDIGIT(changed, true);
+		ALLDIGIT(assigned1, -1);
+		ALLDIGIT(assigned2, -1);
+		WinInvalidateRect(hwndClient, NULL, FALSE);
+		PaintWindow2();
+		nDigits = 0;
+		if (c==0) {
+			if (preTime > 0) Score += preTime*(preTime+1)/2;
+			if (StoreScore(Score, clock, thelevel)) {
+				ShowHiScore(hwndClient);
+#ifndef USE_CREATETHREAD
+				_beginthread(melody, NULL, 8192, NULL);
+#else
+				DosCreateThread(&tid, (PFNTHREAD)genprob, 0UL, 0UL, 8192);
+#endif
+			}
+		}
+	    } else if (!HardLevel)
+	        preTime = preTime < 0 ? 10 : preTime + 10;
+	}
+	// ALLDIGIT(changed, true)
+	WinInvalidateRect(hwndClient, NULL, FALSE);
+	PaintWindow2();
+}
+
+//======================================================
+void Commands(HWND hwnd, ULONG mess, MPARAM parm1, MPARAM parm2)
+{
+	switch (SHORT1FROMMP (parm1))
+	{
+	   case IDM_Exit:
+		WinSendMsg(hwnd, WM_CLOSE, NULL, NULL);
+		break;
+	   case IDM_Level:
+		WinDlgBox(HWND_DESKTOP, hwnd, LevelDlgProc,(HMODULE)0, ID_LEVEL, NULL);
+		if (newlevel) {
+			level = newlevel;
+			level2=newlevel2;
+		}
+		else break;
+		// Otherwise we wan't to have a new puzzle!
+	   case IDM_Neu:
+		DosReleaseMutexSem(hmtx);
+		DosPostEventSem(hev2);
+		MAUS_ZEIGER(WinQuerySysPointer(HWND_DESKTOP, SPTR_WAIT,FALSE));
+		nDigits = 0;
+		ALLDIGIT(coded, 1); ALLDIGIT(assigned1,-1); 
+		ALLDIGIT(changed, true); ALLDIGIT(assigned2 ,-1);
+		{ HPS hps = WinBeginPaint (hwnd, NULLHANDLE, NULL);
+		GpiErase(hps);
+		WinEndPaint(hps); }
+		break;
+	   case IDM_Sol:
+		ALLDIGIT(coded,0); ALLDIGIT(changed, true); 
+		ALLDIGIT(assigned1, -1); ALLDIGIT(assigned2, -1);
+		Score = preTime = nDigits = 0;
+		WinInvalidateRect(hwnd, NULL, FALSE);
+		break;
+	   case IDM_HELPINDEX:
+	      	HelpIndex();
+	      	break;
+	   case IDM_HELPGENERAL:
+	      	HelpGeneral();
+	      	break;
+	   case IDM_HELPUSINGHELP:
+	      	HelpUsingHelp();
+	      	break;
+	   case IDM_HELPKEYS:
+	      	HelpKeys();
+	      	break;
+	   case IDM_HISCORE:
+	      	ShowHiScore(hwnd);
+	      	break;
+	   case IDM_Hard:
+	      	HardLevel = !HardLevel;
+	      	if (!WinSendMsg(WinWindowFromID(WinQueryWindow(hwnd, QW_PARENT), FID_MENU),
+				MM_ISITEMVALID,
+				MPFROM2SHORT(IDM_Hard, TRUE),0))
+			break;
+	      	WinSendMsg(WinWindowFromID(WinQueryWindow(hwnd, QW_PARENT), FID_MENU),
+				MM_SETITEMATTR,
+				MPFROM2SHORT(IDM_Hard, TRUE),    
+				HardLevel
+				? MPFROM2SHORT(MIA_CHECKED,MIA_CHECKED)
+				: MPFROM2SHORT(MIA_CHECKED,0));
+		WinSendMsg(hwnd, WM_COMMAND, (MPARAM)IDM_Neu, 0);
+	      	break;
+          case IDM_Alpha:
+	      	AlphaSet = !AlphaSet;
+	      	WinSendMsg(WinWindowFromID(WinQueryWindow(hwnd, QW_PARENT), FID_MENU),
+				MM_SETITEMATTR,
+				MPFROM2SHORT(IDM_Alpha, TRUE),    
+				AlphaSet
+				? MPFROM2SHORT(MIA_CHECKED,MIA_CHECKED)
+				: MPFROM2SHORT(MIA_CHECKED,0));
+		ALLDIGIT(changed, true);
+		WinInvalidateRect(hwnd, NULL, FALSE);
+		PaintWindow2();
+	      	break;
+	   case IDM_About:
+		ULONG temp = FCF_SYSMODAL;
+		WinDlgBox(HWND_DESKTOP, hwnd, AboutDlgProc, (HMODULE)0, ID_HELLO, &temp);
+		break;
+	}
+}
+
+// Semaphores
+HEV hev, hev2;
+HMTX hmtx;
+
+MRESULT EXPENTRY
+window_func(HWND hwnd, ULONG mess, MPARAM parm1, MPARAM parm2)
+{
+  HWND hwndParent;
+  int i;
+  ULONG temp;
+  static TID tid;
+
+  switch(mess)
+  {
+    case WM_CREATE:
+	GetBitMaps(hwnd);
+	// Und jetzt wirds multitaskig!
+	DosCreateMutexSem((PSZ)NULL, &hmtx, 0L, (BOOL32) 0);
+	DosCreateEventSem((PSZ)NULL, &hev , 0L, (BOOL32) 0);
+	DosCreateEventSem((PSZ)NULL, &hev2, 0L, (BOOL32) 0);
+#ifndef USE_CREATETHREAD
+	tid = _beginthread(genprob, NULL, 8192, NULL);
+#else
+	DosCreateThread(&tid, (PFNTHREAD)genprob, 0UL, 0UL, 8192);
+#endif
+
+	// Jetzt Aufgabe erzeugen!
+	WinSendMsg(hwnd, WM_COMMAND, (MPARAM)IDM_Neu, 0);
+
+        // Startmeldung zeigen
+	temp = FCF_SYSMODAL;
+	WinDlgBox(HWND_DESKTOP, hwnd, AboutDlgProc, (HMODULE)0, ID_HELLO, &temp);
+	clock = nDigits = Score = 0;
+
+        // Fenster oeffnen
+        cxBorder = WinQuerySysValue(HWND_DESKTOP,SV_CXBORDER);
+        cyBorder = WinQuerySysValue(HWND_DESKTOP,SV_CYBORDER);
+        hwndParent = WinQueryWindow(hwnd,QW_PARENT);
+	cyDimen = BigBmpData.cy* 3 + (SmallBmpData.cy+2)*2 + cyBorder*16;
+	int dx = BigBmpData.cx*12 + (SmallBmpData.cx+2)*2 + cxBorder*16;
+        int dy = cyDimen + WinQuerySysValue(HWND_DESKTOP, SV_CYTITLEBAR)
+			 + WinQuerySysValue(HWND_DESKTOP, SV_CYMENU);
+	InitWindow2(hwnd);
+        WinSetWindowPos(hwndParent,HWND_DESKTOP,
+			(WinQuerySysValue(HWND_DESKTOP, SV_CXSCREEN) - dx)/2,
+			(WinQuerySysValue(HWND_DESKTOP, SV_CYSCREEN) - dy)/2,
+			dx, dy,
+                        SWP_SIZE | SWP_ACTIVATE | SWP_SHOW | SWP_MOVE);
+	
+	// Menu veraendern
+	// MIA_DISABLED, FIS_SYSMENU
+	if (!HardLevel)
+		WinSendMsg(WinWindowFromID(WinQueryWindow(hwnd, QW_PARENT), FID_MENU),
+			MM_SETITEMATTR,
+			MPFROM2SHORT(IDM_Hard, TRUE),
+			// Bitmaske, Bitwerte!
+			MPFROM2SHORT(MIA_CHECKED, 0)
+			// MPFROM2SHORT(MIA_CHECKED | MIA_DISABLED, MIA_DISABLED)
+			);
+	if (!AlphaSet)
+		WinSendMsg(WinWindowFromID(WinQueryWindow(hwnd, QW_PARENT), FID_MENU),
+			MM_SETITEMATTR,
+			MPFROM2SHORT(IDM_Alpha, TRUE),
+			MPFROM2SHORT(MIA_CHECKED, 0));
+	// Einen Timer schliesslich, damit er auch die Aufgabe abholt!
+	WinStartTimer(what_is_it_hab, hwnd, ID_Timer, TIMERms);
+
+        break;
+
+    case WM_TIMER:
+	if (nDigits) clock++;
+	if (nDigits && SECONDS(clock-1) != SECONDS(clock)) {
+	    preTime--;
+	    if (preTime < 0) {
+		if (HardLevel)
+			Score -= 50;
+		if (nDigits == 10)
+			Score -= 100;
+		else if (nDigits) 
+			Score -=  81 + 2*nDigits;
+		Score -= Errors;
+	    } else {
+		Score += preTime;
+	    }
+	    PaintWindow2();
+	}
+	DosQueryEventSem(hev, &temp);
+	if (temp && DosRequestMutexSem(hmtx, TIMERms/2) != ERROR_TIMEOUT)  {
+		if (thelevel > level || thelevel < level2) // nach Aenderungen
+			WinSendMsg(hwnd, WM_COMMAND, (MPARAM)IDM_Neu, 0);
+		else {
+			clock   = 0;
+			nDigits = 10;
+			Score   = thelevel * 1700 + 15000;
+			Errors  = 0;
+			preTime = 10;
+			DosResetEventSem(hev, &temp);
+			WinInvalidateRect(hwnd, NULL, FALSE);
+			PaintWindow2();
+			NORM_MAUS_ZEIGER
+		}
+	}
+	break;
+
+    case WM_MOUSEMOVE:
+	WinSetPointer(HWND_DESKTOP, currpointer);
+	break;
+
+    case WM_SIZE:
+	cyClient =  SHORT2FROMMP(parm2);
+	cxClient =  SHORT1FROMMP(parm2);
+	break;
+
+    case WM_PAINT:
+	MainPaint(hwnd);
+	break;
+
+    case WM_COMMAND:
+	Commands(hwnd, mess, parm1, parm2);
+	break;
+
+    case WM_BUTTON2CLICK:
+	NORM_MAUS_ZEIGER
+	break;
+ 
+    case WM_BUTTON1CLICK:
+        inputDigit = GetDigit(SHORT1FROMMP(parm1), SHORT2FROMMP(parm1));
+	if (inputDigit > -1) {
+		for (i = 0; i < 10; i++) {
+			if (AlphaSet && currpointer==DragPtr[i]) {
+				oldtrial = -1;
+				if (Trial(i, inputDigit)) {
+					NORM_MAUS_ZEIGER
+					// QueryHitDigit();
+				}
+				return (MRESULT) FALSE;
+			}
+		}
+		MAUS_ZEIGER(Drag2Ptr[set[inputDigit]]);
+	}
+	break;
+
+    case WM_BUTTON1DBLCLK:
+	NORM_MAUS_ZEIGER
+        inputDigit = GetDigit(SHORT1FROMMP(parm1), SHORT2FROMMP(parm1));
+	if (inputDigit > -1) {
+		WinDlgBox(HWND_DESKTOP, hwnd, DigitDlgProc,(HMODULE)0, ID_DIGIT, NULL);
+	}
+	break;
+
+    case WM_DESTROY:
+	DosKillThread(tid);
+	DeleteBitMaps();
+	ClearWindow2();
+	WinStopTimer(what_is_it_hab, hwnd, ID_Timer);
+	break;
+
+    case WM_PRESPARAMCHANGED:
+	DosBeep(550, 300);
+	WinInvalidateRect(hwnd, NULL, FALSE);
+	break;
+
+    case WM_CLOSE:
+      WinSendMsg(hwnd, WM_QUIT, NULL, NULL);
+      // Somehow better without break;
+
+	
+    default:
+          return WinDefWindowProc(hwnd, mess, parm1, parm2);
+    }
+    return (MRESULT) 0;
+}
+
+
+

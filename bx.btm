@@ -1,0 +1,11 @@
+@set file=equator
+@echo "Sicherungskopie, Disk in A:, %file"
+iff NOT "%1" == "1" then 
+pause 
+endiff
+copy/v/u a:\%file.zip a:\%file.zp2
+mv makefile makefile.sik
+pkzip -ex -u -x*. -x*.exe -x*.o -x*.hlp -x*.ipf -x*.res a:\%file.zip *.*
+mv makefile.sik makefile
+del *.bak
+
