@@ -2,6 +2,8 @@
 
 Educational PM game: discover the right value of the letters and complete the equations.
 
+![PMEquator](/doc/PMEquator.png)
+
 ## LICENSE
 * GNU GPL V2
 
